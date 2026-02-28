@@ -38,7 +38,7 @@ services:
 
       echo '[kafka-init] creating topics...';
       for t in task.requests task.plan task.work task.results task.final task.dlq; do
-        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $t --partitions 1 --replication-factor 1;
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $$t --partitions 1 --replication-factor 1;
       done;
 
       echo '[kafka-init] done';
