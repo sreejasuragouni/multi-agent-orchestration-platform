@@ -1,0 +1,6 @@
+kafka-python==2.0.2
+prometheus-client==0.20.0
+psycopg2-binary==2.9.9
+redis==5.0.8
+fastapi==0.110.0
+uvicorn==0.29.0

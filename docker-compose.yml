@@ -1,0 +1,242 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"   # internal clients in docker network use kafka:9092
+      - "29093:29092" # host access uses localhost:29093
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29093"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: orchestrator
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./api
+    depends_on:
+      - kafka
+      - postgres
+      - qdrant
+    environment:
+      PYTHONUNBUFFERED: "1"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_REQUEST_TOPIC: "task.requests"
+      PG_DSN: "postgresql://app:app@postgres:5432/orchestrator"
+
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "orchestrator"
+      DB_USER: "app"
+      DB_PASSWORD: "app"
+
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "tasks"
+    ports:
+      - "8000:8000"
+
+  orchestrator:
+    build: ./orchestrator
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SERVICE_NAME: "orchestrator"
+      METRICS_PORT: "8002"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_PLAN_TOPIC: "task.plan"
+      KAFKA_RESULTS_TOPIC: "task.results"
+      KAFKA_WORK_TOPIC: "task.work"
+      DLQ_TOPIC: "task.dlq"
+      MAX_ATTEMPTS: "3"
+
+      # DB (keep your existing DSN)
+      PG_DSN: "postgresql://app:app@postgres:5432/orchestrator"
+
+      # ALSO add DB_* for consistency (optional but recommended)
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "orchestrator"
+      DB_USER: "app"
+      DB_PASSWORD: "app"
+    ports:
+       - "8002:8002"
+
+  research_agent:
+    build: ./worker
+    depends_on:
+      - kafka
+    environment:
+      PYTHONUNBUFFERED: "1"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_IN_TOPIC: "task.work"
+      KAFKA_OUT_TOPIC: "task.results"
+      KAFKA_DLQ_TOPIC: "task.dlq"
+      AGENT_ROLE: "research"
+      KAFKA_GROUP_ID: "research-agents"
+      FAIL_PROB: "0.0"
+
+  analysis_agent:
+    build: ./worker
+    depends_on:
+      - kafka
+    environment:
+      PYTHONUNBUFFERED: "1"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_IN_TOPIC: "task.work"
+      KAFKA_OUT_TOPIC: "task.results"
+      KAFKA_DLQ_TOPIC: "task.dlq"
+      AGENT_ROLE: "analysis"
+      KAFKA_GROUP_ID: "analysis-agents"
+      FAIL_PROB: "0.4"
+
+  code_agent:
+    build: ./worker
+    depends_on:
+      - kafka
+    environment:
+      PYTHONUNBUFFERED: "1"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_IN_TOPIC: "task.work"
+      KAFKA_OUT_TOPIC: "task.results"
+      KAFKA_DLQ_TOPIC: "task.dlq"
+      AGENT_ROLE: "code"
+      KAFKA_GROUP_ID: "code-agents"
+      FAIL_PROB: "0.0"
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.3
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  decomposer:
+    build: ./decomposer
+    depends_on:
+      - kafka
+      - qdrant
+      - postgres
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SERVICE_NAME: "decomposer"
+      METRICS_PORT: "8001"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+
+      IN_TOPIC: "task.requests"
+      PLAN_TOPIC: "task.plan"
+      FINAL_TOPIC: "task.final"
+      DLQ_TOPIC: "task.dlq"
+
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "tasks"
+      REUSE_THRESHOLD: "0.83"
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      OLLAMA_EMBED_MODEL: "nomic-embed-text"
+      OLLAMA_CHAT_MODEL: "llama3.1"
+
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "orchestrator"
+      DB_USER: "app"
+      DB_PASSWORD: "app"
+    ports:
+      - "8001:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  synthesizer:
+    build: ./synthesizer
+    depends_on:
+      - kafka
+      - qdrant
+      - postgres
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SERVICE_NAME: "synthesizer"
+      METRICS_PORT: "8003"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_IN_TOPIC: "task.results"
+      KAFKA_OUT_TOPIC: "task.final"
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "tasks"
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      OLLAMA_EMBED_MODEL: "nomic-embed-text"
+      PG_DSN: "postgresql://app:app@postgres:5432/orchestrator"
+      OLLAMA_CHAT_MODEL: "llama3.1"
+
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "orchestrator"
+      DB_USER: "app"
+      DB_PASSWORD: "app"
+    ports:
+      - "8003:8003"
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - kafka_exporter
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  kafka_exporter:
+    image: danielqsj/kafka-exporter:v1.7.0
+    command:
+      - --kafka.server=kafka:9092
+    ports:
+      - "9308:9308"
+    depends_on:
+      - kafka
+
+volumes:
+  kafka_data:
+  qdrant_data:
+  grafana_data:

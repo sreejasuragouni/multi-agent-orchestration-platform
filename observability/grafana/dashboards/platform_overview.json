@@ -1,0 +1,65 @@
+{
+    "annotations": { "list": [] },
+    "editable": true,
+    "id": null,
+    "panels": [
+      {
+        "type": "stat",
+        "title": "Targets Up (by job)",
+        "datasource": { "type": "prometheus", "uid": "PROM" },
+        "targets": [
+          { "expr": "sum by (job) (up)", "legendFormat": "{{job}}", "refId": "A" }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+      },
+      {
+        "type": "timeseries",
+        "title": "Messages Consumed (rate)",
+        "datasource": { "type": "prometheus", "uid": "PROM" },
+        "targets": [
+          {
+            "expr": "sum by (service) (rate(tasks_consumed_total[1m]))",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+      },
+      {
+        "type": "timeseries",
+        "title": "DLQ Produced (rate)",
+        "datasource": { "type": "prometheus", "uid": "PROM" },
+        "targets": [
+          {
+            "expr": "sum(rate(tasks_produced_total{topic=\"task.dlq\"}[1m]))",
+            "legendFormat": "dlq",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+      },
+      {
+        "type": "timeseries",
+        "title": "Synthesizer Final Latency p95 (ms)",
+        "datasource": { "type": "prometheus", "uid": "PROM" },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(final_latency_ms_bucket[5m])) by (le))",
+            "legendFormat": "p95",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+      }
+    ],
+    "refresh": "5s",
+    "schemaVersion": 39,
+    "tags": ["platform"],
+    "templating": { "list": [] },
+    "time": { "from": "now-15m", "to": "now" },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Platform Overview",
+    "uid": "platform-overview",
+    "version": 1
+  }
