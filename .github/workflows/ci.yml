@@ -66,6 +66,20 @@ jobs:
         run: |
           docker compose up -d --build
           docker compose ps
+      
+      - name: Wait for Kafka topics (kafka-init)
+        run: |
+          for i in {1..60}; do
+            if docker compose logs kafka-init | tail -n 100 | grep -q "\[kafka-init\] done"; then
+              echo "Kafka topics are ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "kafka-init did not finish"
+          docker compose logs --tail 200 kafka
+          docker compose logs --tail 200 kafka-init
+          exit 1
 
       - name: Wait for API health
         run: |

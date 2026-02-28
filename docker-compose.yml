@@ -24,7 +24,27 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - kafka
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      "
+      echo '[kafka-init] waiting for kafka...';
+      cub kafka-ready -b kafka:9092 1 60;
+
+      echo '[kafka-init] creating topics...';
+      for t in task.requests task.plan task.work task.results task.final task.dlq; do
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic $t --partitions 1 --replication-factor 1;
+      done;
+
+      echo '[kafka-init] done';
+      "
+    restart: "no"
+    
 
   postgres:
     image: postgres:16
@@ -46,6 +66,7 @@ services:
       - kafka
       - postgres
       - qdrant
+      - kafka-init
     environment:
       PYTHONUNBUFFERED: "1"
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
@@ -68,6 +89,7 @@ services:
     depends_on:
       - kafka
       - postgres
+      - kafka-init
     environment:
       PYTHONUNBUFFERED: "1"
       SERVICE_NAME: "orchestrator"
@@ -146,6 +168,7 @@ services:
       - kafka
       - qdrant
       - postgres
+      - kafka-init
     environment:
       PYTHONUNBUFFERED: "1"
       SERVICE_NAME: "decomposer"
@@ -180,6 +203,7 @@ services:
       - kafka
       - qdrant
       - postgres
+      - kafka-init
     environment:
       PYTHONUNBUFFERED: "1"
       SERVICE_NAME: "synthesizer"
