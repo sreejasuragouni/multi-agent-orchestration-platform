@@ -29,12 +29,15 @@ jobs:
 
       - name: Ruff
         run: |
+          cd ${{ matrix.service }}
           ruff check .
-
-      - name: Pytest (if tests exist)
+          
+      - name: Pytest (service, if tests exist)
         run: |
+          cd ${{ matrix.service }}
           if [ -d tests ]; then pytest -q; else echo "No tests/ folder yet"; fi
 
+      
   docker-build:
     runs-on: ubuntu-latest
     steps:
