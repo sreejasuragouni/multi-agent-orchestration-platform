@@ -1,4 +1,4 @@
-# Intelligent Multi-Agent Task Orchestration Platform (Phase 7)
+# Intelligent Multi-Agent Task Orchestration Platform
 
 A production-style, containerized multi-agent orchestration platform:
 - **API** accepts user tasks
@@ -18,7 +18,7 @@ A production-style, containerized multi-agent orchestration platform:
 4. `worker` services consume `task.work` and publish results to `task.results`
 5. `synthesizer` consumes `task.results`, writes final to Postgres `task_final`, publishes to `task.final`, and stores embeddings/final in Qdrant
 
-See `ARCHITECTURE.md` for details.
+Architecture details are described inline above.
 
 ## Services and Ports
 - API: `http://localhost:8000`
