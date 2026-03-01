@@ -67,7 +67,7 @@ jobs:
 
       - name: Bring up stack
         run: |
-          docker compose up -d --build
+          docker compose up -d --build zookeeper kafka kafka-init postgres qdrant api orchestrator
           docker compose ps
       
       - name: Wait for kafka-init to finish
@@ -148,10 +148,11 @@ jobs:
         run: |
           docker compose ps
           docker compose logs --tail 200 api
-          docker compose logs --tail 200 decomposer
           docker compose logs --tail 200 orchestrator
-          docker compose logs --tail 200 synthesizer
           docker compose logs --tail 200 kafka
+          docker compose logs --tail 200 kafka-init
+          docker compose logs --tail 200 postgres
+          docker compose logs --tail 200 qdrant
 
       - name: Tear down
         if: always()

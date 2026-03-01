@@ -10,6 +10,7 @@ from db import get_conn
 from kafka import KafkaConsumer, KafkaProducer
 from ops_server import start_ops_server_in_thread
 from prometheus_client import Counter, Histogram
+from kafka.errors import NoBrokersAvailable
 
 # -----------------------------
 # Observability (Prometheus + Ops)
@@ -43,14 +44,28 @@ IN_TOPIC = os.environ.get("KAFKA_IN_TOPIC", "task.results")
 OUT_TOPIC = os.environ.get("KAFKA_OUT_TOPIC", "task.final")
 DLQ_TOPIC = os.environ.get("DLQ_TOPIC", "task.dlq")
 
-consumer = KafkaConsumer(
-    IN_TOPIC,
-    bootstrap_servers=BOOTSTRAP,
-    group_id="synthesizer",
-    auto_offset_reset="earliest",
-    enable_auto_commit=True,
-    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-)
+consumer = None
+last_err = None
+
+for _ in range(60):  # ~60s
+    try:
+        consumer = KafkaConsumer(
+            TOPIC_REQUESTS,                  # whatever topics decomposer consumes
+            bootstrap_servers=BOOTSTRAP,
+            group_id="decomposer-v1",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            api_version_auto_timeout_ms=5000,
+            request_timeout_ms=5000,
+        )
+        break
+    except NoBrokersAvailable as e:
+        last_err = e
+        time.sleep(1)
+
+if consumer is None:
+    raise last_err or NoBrokersAvailable()
 
 producer = KafkaProducer(
     bootstrap_servers=BOOTSTRAP,
