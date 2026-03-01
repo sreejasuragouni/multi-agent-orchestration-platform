@@ -26,6 +26,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
 
+  
   kafka-init:
     image: confluentinc/cp-kafka:7.6.1
     depends_on:
@@ -43,8 +44,7 @@ services:
 
       echo '[kafka-init] done';
       "
-    restart: "no"
-    
+    restart: "no" 
 
   postgres:
     image: postgres:16
@@ -95,6 +95,7 @@ services:
       SERVICE_NAME: "orchestrator"
       METRICS_PORT: "8002"
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_REQUEST_TOPIC: "task.requests"
       KAFKA_PLAN_TOPIC: "task.plan"
       KAFKA_RESULTS_TOPIC: "task.results"
       KAFKA_WORK_TOPIC: "task.work"

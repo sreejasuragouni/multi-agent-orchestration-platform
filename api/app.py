@@ -17,7 +17,20 @@ KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"
 REQUEST_TOPIC = os.environ.get("KAFKA_REQUEST_TOPIC", "task.requests")
 
 app = FastAPI(title="Task Submission API (Phase 6)")
-init_schema()  # Ensure DB schema is initialized on startup
+#init_schema()  # Ensure DB schema is initialized on startup
+
+@app.on_event("startup")
+def _startup():
+    # retry a bit so container startup order doesn't kill api
+    last = None
+    for _ in range(30):
+        try:
+            init_schema()
+            return
+        except Exception as e:
+            last = e
+            time.sleep(1)
+    raise last
 
 class TaskRequest(BaseModel):
     task: str
@@ -59,19 +72,52 @@ def metrics():
 @app.post("/tasks")
 def submit_task(req: TaskRequest):
     task_id = str(uuid.uuid4())
+    now_ms = int(time.time() * 1000)
+
+    # 1) Persist task immediately so GET /tasks/{task_id} works
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO tasks (task_id, task_text, status, created_at_ms, updated_at_ms)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (task_id, req.task, "QUEUED", now_ms, now_ms),
+                )
+            conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to persist task: {e}")
+
     payload = {
         "task_id": task_id,
         "task": req.task,
-        "created_at_ms": int(time.time() * 1000),
+        "created_at_ms": now_ms,
     }
 
+    # 2) Publish to Kafka
     try:
         producer = get_producer()
         producer.send(REQUEST_TOPIC, payload)
         producer.flush()
     except NoBrokersAvailable:
+        # Optionally mark as FAILED in DB since we already inserted
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE tasks SET status=%s, updated_at_ms=%s WHERE task_id=%s",
+                    ("FAILED", int(time.time() * 1000), task_id),
+                )
+            conn.commit()
         raise HTTPException(status_code=503, detail="Kafka not available yet. Try again.")
     except Exception as e:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE tasks SET status=%s, updated_at_ms=%s WHERE task_id=%s",
+                    ("FAILED", int(time.time() * 1000), task_id),
+                )
+            conn.commit()
         raise HTTPException(status_code=500, detail=f"Failed to publish task: {e}")
 
     return {"status": "queued", "task_id": task_id, "topic": REQUEST_TOPIC}
