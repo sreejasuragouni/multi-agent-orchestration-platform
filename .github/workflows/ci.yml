@@ -31,7 +31,7 @@ jobs:
         run: |
           cd ${{ matrix.service }}
           ruff check .
-          
+
       - name: Pytest (service, if tests exist)
         run: |
           cd ${{ matrix.service }}
@@ -70,32 +70,41 @@ jobs:
           docker compose up -d --build
           docker compose ps
       
-      - name: Wait for Kafka topics (kafka-init)
+      - name: Wait for kafka-init to finish
         run: |
           for i in {1..60}; do
-            if docker compose logs kafka-init | tail -n 100 | grep -q "\[kafka-init\] done"; then
-              echo "Kafka topics are ready"
-              exit 0
+            if docker compose ps --services | grep -q "^kafka-init$"; then
+              if docker compose logs kafka-init | tail -n 200 | grep -q "\[kafka-init\] done"; then
+                echo "kafka-init completed"
+                exit 0
+              fi
             fi
             sleep 2
           done
-          echo "kafka-init did not finish"
+          echo "kafka-init did not complete"
+          docker compose ps
           docker compose logs --tail 200 kafka
-          docker compose logs --tail 200 kafka-init
+          docker compose logs --tail 200 kafka-init || true
           exit 1
-
-      - name: Wait for API health
+      
+      - name: Verify Kafka topics exist
+        run: |
+          docker compose exec -T kafka bash -lc "kafka-topics --bootstrap-server kafka:9092 --list | sort"
+          docker compose exec -T kafka bash -lc "kafka-topics --bootstrap-server kafka:9092 --list" | grep -q "task.requests"
+      
+      - name: Wait for API ready
         run: |
           for i in {1..60}; do
-            if curl -sf http://localhost:8000/health >/dev/null; then
-              echo "API is up"
+            if curl -sf http://localhost:8000/ready >/dev/null; then
+              echo "API is ready"
               exit 0
             fi
             sleep 2
           done
-          echo "API did not come up in time"
+          echo "API did not become ready in time"
           docker compose logs --tail 200 api
           exit 1
+      
 
       - name: Install jq
         run: |
