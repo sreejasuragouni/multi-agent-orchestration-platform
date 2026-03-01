@@ -1,0 +1,81 @@
+groups:
+  - name: platform-core
+    rules:
+      # ---- Target health / scrape ----
+      - alert: ServiceTargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target down: {{ $labels.job }}"
+          description: "Target {{ $labels.instance }} for job {{ $labels.job }} has been down for > 1 minute."
+
+      # ---- API availability (FastAPI instrumentation may vary; if you don't have HTTP metrics, keep only 'up') ----
+      # If you later add FastAPI request metrics, we can swap in an error-rate alert.
+
+      # ---- Pipeline progress / 'no consumption' ----
+      # If a service has not consumed any messages in 5 minutes, alert.
+      # Uses the counter you already emit: tasks_consumed_total{service,topic}
+      - alert: NoMessagesConsumed
+        expr: sum by (service) (increase(tasks_consumed_total[5m])) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No messages consumed by {{ $labels.service }} in 5m"
+          description: "tasks_consumed_total did not increase for service={{ $labels.service }} over the last 5 minutes."
+
+      # ---- DLQ spike ----
+      # Any sustained DLQ production indicates retries exhausted / bad payloads.
+      - alert: DLQSpike
+        expr: sum(increase(tasks_produced_total{topic=~"task\\.dlq"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ messages detected"
+          description: "task.dlq has received messages in the last 5 minutes. Investigate failing tasks."
+
+      # ---- Synthesizer final write failures ----
+      - alert: SynthFinalWriteFailures
+        expr: increase(final_write_fail_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Synthesizer final DB write failures"
+          description: "final_write_fail_total increased in the last 5 minutes. Postgres writes are failing."
+
+      # ---- Synthesizer latency SLO (p95) ----
+      # If p95 final latency > 10s for 5 minutes, alert (tune later).
+      - alert: SynthFinalLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(final_latency_ms_bucket[5m])) by (le)) > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High finalization latency (p95 > 10s)"
+          description: "Synthesizer p95 final_latency_ms exceeded 10 seconds for 5 minutes."
+
+  - name: kafka-lag
+    rules:
+      # kafka_exporter exposes consumer group lag metrics.
+      # Metric names can differ by exporter version; danielqsj/kafka-exporter commonly uses kafka_consumergroup_lag
+      - alert: KafkaConsumerLagHigh
+        expr: max(kafka_consumergroup_lag) > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high"
+          description: "Max consumer lag is > 500 for 5 minutes. Check consumers / throughput."
+
+      - alert: KafkaConsumerLagCritical
+        expr: max(kafka_consumergroup_lag) > 5000
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka consumer lag critical"
+          description: "Max consumer lag is > 5000 for 5 minutes. Pipeline likely stalled."
